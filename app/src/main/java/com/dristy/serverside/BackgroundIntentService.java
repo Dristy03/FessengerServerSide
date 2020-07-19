@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.SystemClock;
+import android.util.JsonReader;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
@@ -15,6 +16,13 @@ import androidx.core.app.JobIntentService;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 
+import com.android.volley.AuthFailureError;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.JsonObjectRequest;
+import com.android.volley.toolbox.Volley;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnFailureListener;
 import com.google.android.gms.tasks.OnSuccessListener;
@@ -27,9 +35,14 @@ import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.QuerySnapshot;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.lang.reflect.Method;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class BackgroundIntentService extends JobIntentService {
     private static final String TAG = "ExJobIntentService";
@@ -39,10 +52,15 @@ public class BackgroundIntentService extends JobIntentService {
     boolean ok;
     int dd,mm,yy;
     NotificationManager notificationManager;
+    private RequestQueue mRequestQueue;
+    private  String URL ="https://fcm.googleapis.com/fcm/send";
+
+
+
     @Override
     public void onCreate() {
         super.onCreate();
-
+      mRequestQueue = Volley.newRequestQueue(this);
         ok = true;
         Log.d(TAG, "onCreate: ");
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this,"1")
@@ -102,6 +120,8 @@ public class BackgroundIntentService extends JobIntentService {
         }
     }
 
+
+    //checks whether all the mails of the day are sent or not
     private void checksent() {
         db.get().addOnCompleteListener(new OnCompleteListener<DocumentSnapshot>() {
             @Override
@@ -116,6 +136,8 @@ public class BackgroundIntentService extends JobIntentService {
             }
         });
     }
+
+    //get all the mails from database of today to be sent
     void sendMails(){
 
         cr.get().addOnSuccessListener(new OnSuccessListener<QuerySnapshot>() {
@@ -126,7 +148,9 @@ public class BackgroundIntentService extends JobIntentService {
                     String email = snapshot.getString("Email");
                     String title = snapshot.getString("Title");
                     String message = snapshot.getString("Message");
+
                     sendEmails(email,title,message);
+                    sendNotification(email.replace('@','_'));
                 }
                 HashMap<String, Boolean>map = new HashMap<>();
                 map.put("SentAllMails",true);
@@ -142,6 +166,46 @@ public class BackgroundIntentService extends JobIntentService {
 
     }
 
+    //sends notification
+    private void sendNotification(String topic) {
+        Log.d(TAG, "sendNotification: ");
+        JSONObject notification = new JSONObject();
+        JSONObject data = new JSONObject();
+        try {
+            data.put("title","Fessenger");
+            data.put("body","Your message has just arrived.Check your mail");
+
+            notification.put("to","/topics/" + topic); //topic have to be changed
+            notification.put("data",data);
+            notification.put("priority","high");
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        JsonObjectRequest request =new JsonObjectRequest(Request.Method.POST, URL
+                , notification, new Response.Listener<JSONObject>() {
+            @Override
+            public void onResponse(JSONObject response) {
+
+            }
+        }, new Response.ErrorListener() {
+            @Override
+            public void onErrorResponse(VolleyError error) {
+
+            }
+        }){
+            @Override
+            public Map<String, String> getHeaders() throws AuthFailureError {
+                Map<String,String>header = new HashMap<>();
+                header.put("Content-Type","application/json");
+                header.put("Authorization","key=" + "AAAAyjVGQBk:APA91bEt6Mj_HgqA3On1k5pPECZxZO1nxlXMBkaNSyn3_1WkDRS30bBciC5cu3SAa-4e3IJ-m46nSXXqZ7Vt0to_-fFP4AwDkF3kKQ9JmmVlQ-cdC3mPfBMVM-EFbiRghJwbAFyQxYyW");
+                return header;
+            }
+        };
+        mRequestQueue.add(request);
+
+    }
+
+    //sends mail to the user as desired
     private void sendEmails(String email, String title, String message) {
         Log.d(TAG, "onSendMail: " + email + " " + message );
         SendMails sendMail=new SendMails(this,email,title,message);
